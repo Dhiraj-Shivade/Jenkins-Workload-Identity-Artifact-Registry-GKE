@@ -1,0 +1,55 @@
+pipeline {
+    agent any
+    environment {
+        PROJECT_ID = "innate-vigil-472406-q8"
+        REGION     = "asia-south1"
+        REPO       = "myrepo"
+        GSA        = "jenkins-wif-sa@innate-vigil-472406-q8.iam.gserviceaccount.com"
+        CLUSTER    = "single-cluster"
+        ZONE       = "asia-south1-a"
+        IMAGE      = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/myapp:latest"
+    }
+
+    stages {
+
+        stage('Authenticate with GCP (WIF)') {
+            steps {
+                sh """
+                gcloud auth print-access-token --impersonate-service-account=${GSA} > token.txt
+                gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet --impersonate-service-account=${GSA}
+                """
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${IMAGE} ."
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                sh "docker push ${IMAGE}"
+            }
+        }
+
+        stage('Connect to GKE') {
+            steps {
+                sh """
+                gcloud container clusters get-credentials ${CLUSTER} \
+                    --zone ${ZONE} \
+                    --impersonate-service-account=${GSA}
+                """
+            }
+        }
+
+        stage('Deploy to GKE') {
+            steps {
+                sh """
+                kubectl apply -f k8s/deployment.yaml
+                kubectl apply -f k8s/service.yaml
+                """
+            }
+        }
+    }
+}
